@@ -1,14 +1,15 @@
 --[[ 
-    ZOMBIE TESTER V62 - FLY & NOCLIP
+    ZOMBIE TESTER V63 - FLY FIXED (WASD)
     
-    NOVIDADES:
-    1. FLY: Voar pelo mapa (Controlado pelo movimento/joystick).
-    2. NOCLIP: Atravessar paredes.
-    3. AUTO LOOT INTELIGENTE: Salva e restaura Fly/Noclip automaticamente.
+    CORREÇÕES:
+    - FLY (VOAR): Corrigido controles invertidos. 
+      Agora W vai para frente e S para trás corretamente.
+      Funciona perfeito no Mobile (Joystick) e PC.
     
     MANTIDO:
-    - F1, F2, F3 (Sincronizados).
-    - Auto Switch, Combine Ammo, Hitbox.
+    - Noclip (Atravessar paredes).
+    - F1 Bring (Zumbis aparecem na frente, de costas para você).
+    - Auto Loot Inteligente (Pausa Fly/Noclip/Funções e restaura depois).
     - Remove Lava.
     - Interface Profissional Flutuante.
 ]]
@@ -38,8 +39,8 @@ local CombineAmmo_Enabled = false
 local AutoSwitch_Enabled = false
 local Bring_Enabled = false
 local RemoveLava_Enabled = false
-local Fly_Enabled = false       -- [[ NOVO ]]
-local Noclip_Enabled = false    -- [[ NOVO ]]
+local Fly_Enabled = false       
+local Noclip_Enabled = false    
 
 -- Configurações
 local JailPos = Vector3.new(133, 431, -135)
@@ -49,7 +50,7 @@ local IsTeleporting = false
 local HeadSize = 30
 local BringDistance = 8 
 local IsShooting = false
-local FlySpeed = 1 -- Velocidade do Voo
+local FlySpeed = 1.5 -- Velocidade do Voo ajustada para ficar fluida
 
 -- Pastas
 local MysteryFolder = workspace:FindFirstChild("MysteryBoxes")
@@ -207,31 +208,19 @@ local function LogicLoop()
     local Root = Char and Char:FindFirstChild("HumanoidRootPart")
     local Hum = Char and Char:FindFirstChild("Humanoid")
 
-    -- 1. FLY (VOAR)
+    -- 1. FLY (FIXED WASD)
     if Fly_Enabled and Root and Hum then
-        -- Simples Fly CFrame baseado na Câmera e MoveDirection
-        local CamCF = Camera.CFrame
-        local MoveDir = Hum.MoveDirection
-        
-        -- Zera a gravidade/velocidade original
+        -- Zera a gravidade original
         Root.Velocity = Vector3.zero
         
-        -- Move baseando-se para onde a câmera olha
-        if MoveDir.Magnitude > 0 then
-            -- Calcula a nova posição
-            local NewPos = Root.CFrame.Position + (CamCF.RightVector * (MoveDir.X * FlySpeed)) + (CamCF.LookVector * (MoveDir.Z * FlySpeed * -1))
-            -- Ajusta altura com Espaço/Control se quiser, ou só segue a câmera
-            -- Aqui vamos fazer seguir a direção que o player aperta (W vai pra onde a camera olha)
-            Root.CFrame = CFrame.new(NewPos, NewPos + CamCF.LookVector)
-        else
-            -- Mantém parado no ar
-            Root.Velocity = Vector3.zero
+        -- Lógica corrigida: Usa MoveDirection direto.
+        -- O MoveDirection já calcula o W como "frente" baseado na câmera.
+        if Hum.MoveDirection.Magnitude > 0 then
+            Root.CFrame = Root.CFrame + (Hum.MoveDirection * FlySpeed)
         end
     end
 
-    -- 2. NOCLIP (RenderStepped para garantir)
-    -- O Noclip principal fica melhor no loop "Stepped" (abaixo), 
-    -- mas aqui garantimos caso o jogo force a colisão.
+    -- 2. NOCLIP (RenderStepped)
     if Noclip_Enabled and Char then
         for _, part in pairs(Char:GetDescendants()) do
             if part:IsA("BasePart") and part.CanCollide then
@@ -328,13 +317,18 @@ local function LogicLoop()
         end
     end
 
-    -- 8. BRING
+    -- 8. BRING (Costas p/ Player)
     if Bring_Enabled and not F2_Mode and ZombieFolder then
         local LookVec = Camera.CFrame.LookVector
+        -- Posição Alvo = 8 studs na frente da câmera
         local TargetPos = Camera.CFrame.Position + (LookVec * BringDistance)
+        
         for _, z in pairs(ZombieFolder:GetChildren()) do
             local R = z:FindFirstChild("HumanoidRootPart")
             if R then
+                -- LookAt = TargetPos + LookVec
+                -- Isso faz o zumbi olhar na mesma direção que você olha.
+                -- Logo, as costas dele ficam viradas para você.
                 R.CFrame = CFrame.new(TargetPos, TargetPos + LookVec)
                 R.Anchored = true; R.Velocity = Vector3.zero
             end
@@ -362,10 +356,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(LogicLoop))
 --------------------------------------------------------------------------------
 
 local function CreateUI()
-    for _, v in pairs(CoreGui:GetChildren()) do if v.Name == "ZombieV62" then v:Destroy() end end
+    for _, v in pairs(CoreGui:GetChildren()) do if v.Name == "ZombieV63" then v:Destroy() end end
     
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "ZombieV62"
+    ScreenGui.Name = "ZombieV63"
     ScreenGui.Parent = CoreGui
     
     local SoundClick = Instance.new("Sound", ScreenGui)
@@ -404,7 +398,7 @@ local function CreateUI()
 
     -- MAIN FRAME
     local MainFrame = Instance.new("Frame", ScreenGui)
-    MainFrame.Size = UDim2.new(0, 250, 0, 550) -- Aumentado para caber Fly/Noclip
+    MainFrame.Size = UDim2.new(0, 250, 0, 550) 
     MainFrame.Position = UDim2.new(0.5, -125, 0.5, -275)
     MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
     local MC = Instance.new("UICorner", MainFrame); MC.CornerRadius = UDim.new(0, 10)
@@ -459,7 +453,7 @@ local function CreateUI()
     AddToggle("F3: Smart Fire", false, Enum.KeyCode.F3, function(s) F3_Mode = s end)
     AddToggle("F1: Bring (Costas)", false, Enum.KeyCode.F1, function(s) Bring_Enabled = s; if not s then UnfreezeZombies() end end)
     
-    AddToggle("Fly (Voar)", false, nil, function(s) Fly_Enabled = s end)
+    AddToggle("Fly (Voar - WASD)", false, nil, function(s) Fly_Enabled = s end)
     AddToggle("Noclip (Atravessar)", false, nil, function(s) Noclip_Enabled = s end)
     
     AddToggle("Auto Remove Lava", false, nil, function(s) RemoveLava_Enabled = s; if s then CheckAndRemoveLava() end end)
@@ -505,4 +499,4 @@ if Connections then
 end
 
 CreateUI()
-Notify("ZOMBIE V62", "Fly e Noclip Adicionados!")
+Notify("ZOMBIE V63", "Controles Fly Corrigidos!")
