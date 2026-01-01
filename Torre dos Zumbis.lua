@@ -415,7 +415,7 @@ local function CreateUI()
     local Header = Instance.new("Frame", MainFrame)
     Header.Size = UDim2.new(1, 0, 0, 40); Header.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
     local HC = Instance.new("UICorner", Header); HC.CornerRadius = UDim.new(0, 10)
-    local HTilde = Instance.new("TextLabel", Header); HTilde.Text=" ZOMBIE V62"; HTilde.Size=UDim2.new(0.8,0,1,0); HTilde.BackgroundTransparency=1; HTilde.TextColor3=Color3.fromRGB(0,200,255); HTilde.Font=Enum.Font.GothamBold; HTilde.TextSize=16; HTilde.TextXAlignment=Enum.TextXAlignment.Left; HTilde.Position=UDim2.new(0.05,0,0,0)
+    local HTilde = Instance.new("TextLabel", Header); HTilde.Text=" ZOMBIE V1"; HTilde.Size=UDim2.new(0.8,0,1,0); HTilde.BackgroundTransparency=1; HTilde.TextColor3=Color3.fromRGB(0,200,255); HTilde.Font=Enum.Font.GothamBold; HTilde.TextSize=16; HTilde.TextXAlignment=Enum.TextXAlignment.Left; HTilde.Position=UDim2.new(0.05,0,0,0)
     local Mini = Instance.new("TextButton", Header); Mini.Text="-"; Mini.Size=UDim2.new(0,30,0,30); Mini.Position=UDim2.new(1,-35,0.5,-15); Mini.BackgroundColor3=Color3.fromRGB(40,40,45); Mini.TextColor3=Color3.new(1,1,1); local MiC=Instance.new("UICorner", Mini); MiC.CornerRadius=UDim.new(0,6)
 
     -- LISTA
