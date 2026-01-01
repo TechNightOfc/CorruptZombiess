@@ -1,85 +1,95 @@
 --[[ 
-    ZOMBIE TESTER V63 - FLY FIXED (WASD)
+    ZOMBIE V1 - ULTIMATE (FIXED FLY EDITION)
     
-    CORREÇÕES:
-    - FLY (VOAR): Corrigido controles invertidos. 
-      Agora W vai para frente e S para trás corretamente.
-      Funciona perfeito no Mobile (Joystick) e PC.
+    CORREÇÃO:
+    - FLY: Matemática corrigida. Não voa mais rápido demais.
+    - NOVO BOTÃO: "VELOCIDADE FLY" para escolher entre 20, 50 ou 100.
     
-    MANTIDO:
-    - Noclip (Atravessar paredes).
-    - F1 Bring (Zumbis aparecem na frente, de costas para você).
-    - Auto Loot Inteligente (Pausa Fly/Noclip/Funções e restaura depois).
-    - Remove Lava.
-    - Interface Profissional Flutuante.
+    FUNCIONALIDADES:
+    - F1: Bring (Puxar Zumbis).
+    - Botão "REMOVER LAVA".
+    - Fly & Noclip.
+    - Extended Mag, Auto Loot, Jail, etc.
 ]]
 
--- 1. SERVIÇOS E SETUP
+-- Aguarda carregamento
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+-- SERVIÇOS
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local TweenService = game:GetService("TweenService")
+local TweenService = game:GetService("TweenService") 
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
+local StarterGui = game:GetService("StarterGui")
+local Mouse = LocalPlayer:GetMouse()
 
-if not game:IsLoaded() then game.Loaded:Wait() end
-
--- 2. VARIÁVEIS GLOBAIS
-local Connections = {} 
-local ButtonToggles = {} 
-
--- Estados (Toggles)
-local F2_Mode = false
-local F3_Mode = false
-local Hitbox_Enabled = false
-local AutoLoot_Enabled = false
-local CombineAmmo_Enabled = false
-local AutoSwitch_Enabled = false
-local Bring_Enabled = false
-local RemoveLava_Enabled = false
-local Fly_Enabled = false       
-local Noclip_Enabled = false    
-
--- Configurações
-local JailPos = Vector3.new(133, 431, -135)
-local LootInterval = 60 
-local LastLootTime = 0
-local IsTeleporting = false
-local HeadSize = 30
-local BringDistance = 8 
-local IsShooting = false
-local FlySpeed = 1.5 -- Velocidade do Voo ajustada para ficar fluida
-
--- Pastas
+-- PASTAS DO MAPA
 local MysteryFolder = workspace:FindFirstChild("MysteryBoxes")
 local PlanktonFolder = workspace:FindFirstChild("LivePlankton")
 local ZombieFolder = workspace:FindFirstChild("ActiveZombies")
 local MapFolder = workspace:FindFirstChild("LoadedMap") 
 local SpawnsFolder = MapFolder and MapFolder:FindFirstChild("ZombieSpawns")
 
---------------------------------------------------------------------------------
--- 3. FUNÇÕES DE LÓGICA (BACKEND)
---------------------------------------------------------------------------------
+-- LOCALIZAÇÃO DA PRISÃO (JAIL / KILLZONE)
+local JailPos = Vector3.new(133, 431, -135)
 
+-- VARIÁVEIS GLOBAIS
+local Connections = {} 
+
+-- ESTADOS
+local Bring_Enabled = false -- F1 (BRING)
+local F2_Mode = false -- JAIL
+local F3_Mode = false -- FIRE
+local Fly_Enabled = false -- FLY (Botão)
+local Noclip_Enabled = false -- NOCLIP
+local Hitbox_Enabled = false 
+local AutoLoot_Enabled = false 
+local CombineAmmo_Enabled = false 
+local AutoSwitch_Enabled = false   
+
+-- CONFIGURAÇÕES
+local LootInterval = 60 
+local LastLootTime = 0
+local IsTeleporting = false
+local HeadSize = 30 
+local IsShooting = false
+local BringDistance = 5 
+local FlySpeed = 20 -- Velocidade Inicial Corrigida
+
+-- CONTROLES DE VOO
+local CONTROL = {F = 0, B = 0, L = 0, R = 0, U = 0, D = 0}
+local lCONTROL = {F = 0, B = 0, L = 0, R = 0, U = 0, D = 0}
+local SPEED = 0
+
+-- NOTIFICAÇÃO
 local function Notify(title, text)
-    game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = title, Text = text, Duration = 3
+    StarterGui:SetCore("SendNotification", {
+        Title = title,
+        Text = text,
+        Duration = 3
     })
 end
 
+-------------------------------------------------------------------------
+-- 1. UTILS
+-------------------------------------------------------------------------
 local function GetCurrentAmmo(tool)
-    if not tool then return 0 end
+    if not tool then return 0 end 
     local folders = {"Info", "ServerInfo", "Settings", "Configuration"}
     for _, fName in pairs(folders) do
         local folder = tool:FindFirstChild(fName)
         if folder then
             local Clip = folder:FindFirstChild("Clip") or folder:FindFirstChild("Ammo")
-            if Clip and (Clip:IsA("IntValue") or Clip:IsA("NumberValue")) then return Clip.Value end
+            if Clip and (Clip:IsA("IntValue") or Clip:IsA("NumberValue")) then
+                return Clip.Value
+            end
         end
     end
-    return 999
+    return 999 
 end
 
 local function IsHoldingFireGun()
@@ -93,204 +103,279 @@ local function IsHoldingFireGun()
     return false
 end
 
-local function UnfreezeZombies()
-    if ZombieFolder then
-        for _, z in pairs(ZombieFolder:GetChildren()) do
-            local r = z:FindFirstChild("HumanoidRootPart") or z:FindFirstChild("Torso")
-            if r then r.Anchored = false end
+-------------------------------------------------------------------------
+-- 2. FLY & NOCLIP (CORRIGIDO)
+-------------------------------------------------------------------------
+local function FlyFunction()
+    local BG = Instance.new('BodyGyro')
+    local BV = Instance.new('BodyVelocity')
+    
+    task.spawn(function()
+        while Fly_Enabled do
+            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then 
+                Fly_Enabled = false 
+                break 
+            end
+            
+            local Humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+            local Root = LocalPlayer.Character.HumanoidRootPart
+
+            if Humanoid and Root then
+                Humanoid.PlatformStand = true
+                
+                if not Root:FindFirstChild("IY_BG") then
+                    BG = Instance.new('BodyGyro', Root)
+                    BG.Name = "IY_BG"; BG.P = 9e4; BG.maxTorque = Vector3.new(9e9, 9e9, 9e9); BG.cframe = Root.CFrame
+                end
+                if not Root:FindFirstChild("IY_BV") then
+                    BV = Instance.new('BodyVelocity', Root)
+                    BV.Name = "IY_BV"; BV.velocity = Vector3.new(0, 0, 0); BV.maxForce = Vector3.new(9e9, 9e9, 9e9)
+                end
+
+                BG.cframe = Camera.CFrame
+                
+                -- CONTROLES AGORA RETORNAM 1 (DIREÇÃO) E NÃO A VELOCIDADE
+                CONTROL.F = (UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0)
+                CONTROL.B = (UserInputService:IsKeyDown(Enum.KeyCode.S) and -1 or 0)
+                CONTROL.L = (UserInputService:IsKeyDown(Enum.KeyCode.A) and -1 or 0)
+                CONTROL.R = (UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0)
+                CONTROL.U = (UserInputService:IsKeyDown(Enum.KeyCode.E) and 1 or 0)
+                CONTROL.D = (UserInputService:IsKeyDown(Enum.KeyCode.Q) and -1 or 0)
+                
+                if (CONTROL.L + CONTROL.R) ~= 0 or (CONTROL.F + CONTROL.B) ~= 0 or (CONTROL.U + CONTROL.D) ~= 0 then 
+                    SPEED = FlySpeed -- Usa a variável global configurada
+                elseif not (CONTROL.L + CONTROL.R ~= 0 or CONTROL.F + CONTROL.B ~= 0 or CONTROL.U + CONTROL.D ~= 0) and SPEED ~= 0 then 
+                    SPEED = 0 
+                end
+                
+                if (CONTROL.L + CONTROL.R) ~= 0 or (CONTROL.F + CONTROL.B) ~= 0 or (CONTROL.U + CONTROL.D) ~= 0 then
+                    BV.velocity = ((Camera.CFrame.lookVector * (CONTROL.F + CONTROL.B)) + ((Camera.CFrame * CFrame.new(CONTROL.L + CONTROL.R, (CONTROL.F + CONTROL.B + CONTROL.U + CONTROL.D) * 0.2, 0).p) - Camera.CFrame.p)) * SPEED
+                    lCONTROL = {F = CONTROL.F, B = CONTROL.B, L = CONTROL.L, R = CONTROL.R, U = CONTROL.U, D = CONTROL.D}
+                elseif (CONTROL.L + CONTROL.R) == 0 and (CONTROL.F + CONTROL.B) == 0 and (CONTROL.U + CONTROL.D) == 0 and SPEED ~= 0 then
+                    BV.velocity = ((Camera.CFrame.lookVector * (lCONTROL.F + lCONTROL.B)) + ((Camera.CFrame * CFrame.new(lCONTROL.L + lCONTROL.R, (lCONTROL.F + lCONTROL.B + lCONTROL.U + lCONTROL.D) * 0.2, 0).p) - Camera.CFrame.p)) * SPEED
+                else
+                    BV.velocity = Vector3.new(0, 0, 0)
+                end
+            end
+            RunService.RenderStepped:Wait()
+        end
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.PlatformStand = false end
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local r = LocalPlayer.Character.HumanoidRootPart
+            if r:FindFirstChild("IY_BG") then r.IY_BG:Destroy() end
+            if r:FindFirstChild("IY_BV") then r.IY_BV:Destroy() end
+        end
+    end)
+end
+
+table.insert(Connections, RunService.Stepped:Connect(function()
+    if Noclip_Enabled and LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide == true then part.CanCollide = false end
+        end
+    end
+end))
+
+-------------------------------------------------------------------------
+-- 3. AUTO SWITCH
+-------------------------------------------------------------------------
+local function AutoSwitchLoop()
+    if not AutoSwitch_Enabled then return end
+    local Char = LocalPlayer.Character
+    if not Char or not Char:FindFirstChild("Humanoid") then return end
+    local CurrentTool = Char:FindFirstChildOfClass("Tool")
+    local Backpack = LocalPlayer:FindFirstChild("Backpack")
+    
+    if not CurrentTool then
+        if Backpack then
+            local Tools = Backpack:GetChildren()
+            if #Tools > 0 then
+                for _, t in pairs(Tools) do
+                    if t:IsA("Tool") then Char.Humanoid:EquipTool(t); return end
+                end
+            end
+        end
+        return
+    end
+    local Ammo = GetCurrentAmmo(CurrentTool)
+    if Ammo <= 0 and Backpack then
+        local Tools = Backpack:GetChildren()
+        if #Tools > 0 then
+            for _, t in pairs(Tools) do
+                if t:IsA("Tool") and t ~= CurrentTool then Char.Humanoid:EquipTool(t); return end
+            end
         end
     end
 end
+table.insert(Connections, RunService.Heartbeat:Connect(AutoSwitchLoop))
 
-local function CheckAndRemoveLava()
-    if RemoveLava_Enabled then
-        local LavaFolder = workspace:FindFirstChild("TouchLava")
-        if LavaFolder then LavaFolder:Destroy() end
-    end
-end
-
--- --- AUTO LOOT COMPLEXO (SALVA E RESTAURA TUDO) ---
+-------------------------------------------------------------------------
+-- 4. AUTO LOOT
+-------------------------------------------------------------------------
 local function PerformLootRun()
     if IsTeleporting then return end
     IsTeleporting = true
-    
     local Character = LocalPlayer.Character
-    if not Character or not Character:FindFirstChild("HumanoidRootPart") then 
-        IsTeleporting = false
-        return 
-    end
-
-    -- 1. SALVAR ESTADOS ATUAIS
+    if not Character or not Character:FindFirstChild("HumanoidRootPart") then IsTeleporting = false return end
+    
     local Saved_F1 = Bring_Enabled
     local Saved_F2 = F2_Mode
     local Saved_F3 = F3_Mode
     local Saved_Fly = Fly_Enabled
-    local Saved_Noclip = Noclip_Enabled
     
-    -- 2. DESATIVAR PARA O LOOT
-    if Saved_F1 or Saved_F2 or Saved_F3 or Saved_Fly or Saved_Noclip then
-        Notify("AUTO LOOT", "Pausando funções...")
-        Bring_Enabled = false; F2_Mode = false; F3_Mode = false
-        Fly_Enabled = false; Noclip_Enabled = false
-        UnfreezeZombies() 
+    if Saved_F1 or Saved_F2 or Saved_F3 then Notify("AUTO LOOT", "Coletando...") end
+    Bring_Enabled = false; F2_Mode = false; F3_Mode = false; Fly_Enabled = false
+    
+    local SavedPos = Character.HumanoidRootPart.CFrame
+    
+    -- JAIL
+    if AutoLoot_Enabled then
+        Character.HumanoidRootPart.CFrame = CFrame.new(JailPos)
+        for i = 1, 15 do RunService.Heartbeat:Wait() end
     end
-
-    local Root = Character.HumanoidRootPart
-    local SavedPos = Root.CFrame
-
-    -- ROTA 1: KILLZONE (JAIL)
-    Root.CFrame = CFrame.new(JailPos)
-    for i = 1, 15 do RunService.Heartbeat:Wait() end 
-
-    -- ROTA 2: SPAWNS
-    if not SpawnsFolder then 
-        local M = workspace:FindFirstChild("LoadedMap")
-        SpawnsFolder = M and M:FindFirstChild("ZombieSpawns")
-    end
+    -- SPAWNS
     if SpawnsFolder then
         for _, s in pairs(SpawnsFolder:GetChildren()) do
             if not AutoLoot_Enabled then break end
-            if s:IsA("BasePart") then Root.CFrame = s.CFrame
-            elseif s:IsA("Model") and s.PrimaryPart then Root.CFrame = s.PrimaryPart.CFrame end
+            if s:IsA("BasePart") then Character.HumanoidRootPart.CFrame = s.CFrame
+            elseif s:IsA("Model") and s.PrimaryPart then Character.HumanoidRootPart.CFrame = s.PrimaryPart.CFrame end
             RunService.Heartbeat:Wait()
         end
     end
-    
-    -- ROTA 3: CAIXAS
-    if MysteryFolder then
+    -- ITENS
+    if MysteryFolder and AutoLoot_Enabled then
         for _, box in pairs(MysteryFolder:GetChildren()) do
-            if not AutoLoot_Enabled then break end
-            Root.CFrame = box:IsA("Model") and box.PrimaryPart.CFrame or box.CFrame
+            if box:IsA("BasePart") then Character.HumanoidRootPart.CFrame = box.CFrame
+            elseif box:IsA("Model") and box.PrimaryPart then Character.HumanoidRootPart.CFrame = box.PrimaryPart.CFrame end
             RunService.Heartbeat:Wait()
         end
     end
-    
-    -- ROTA 4: PLANKTON
-    if PlanktonFolder then
+    if PlanktonFolder and AutoLoot_Enabled then
         for _, item in pairs(PlanktonFolder:GetChildren()) do
-            if not AutoLoot_Enabled then break end
-            Root.CFrame = item:IsA("Model") and item.PrimaryPart.CFrame or item.CFrame
+            if item:IsA("BasePart") then Character.HumanoidRootPart.CFrame = item.CFrame end
             RunService.Heartbeat:Wait()
         end
     end
 
-    -- 3. RESTAURAÇÃO
-    Root.CFrame = SavedPos
-    
-    if Saved_F1 or Saved_F2 or Saved_F3 or Saved_Fly or Saved_Noclip then
-        Notify("AUTO LOOT", "Restaurando funções!")
-        Bring_Enabled = Saved_F1
-        F2_Mode = Saved_F2
-        F3_Mode = Saved_F3
-        Fly_Enabled = Saved_Fly
-        Noclip_Enabled = Saved_Noclip
-    end
-    
+    Character.HumanoidRootPart.CFrame = SavedPos
+    Bring_Enabled = Saved_F1; F2_Mode = Saved_F2; F3_Mode = Saved_F3
+    if Saved_Fly then Fly_Enabled = true; FlyFunction() end
     IsTeleporting = false
 end
 
--- LOOP DE TEMPO DO LOOT
 task.spawn(function()
     while true do
         if AutoLoot_Enabled then
-            if (tick() - LastLootTime) >= LootInterval then
-                PerformLootRun()
-                LastLootTime = tick()
-            end
+            if (tick() - LastLootTime) >= LootInterval then PerformLootRun(); LastLootTime = tick() end
         end
         task.wait(1)
     end
 end)
 
--- --- LOOPS GERAIS ---
-local function LogicLoop()
-    local Char = LocalPlayer.Character
-    local Root = Char and Char:FindFirstChild("HumanoidRootPart")
-    local Hum = Char and Char:FindFirstChild("Humanoid")
-
-    -- 1. FLY (FIXED WASD)
-    if Fly_Enabled and Root and Hum then
-        -- Zera a gravidade original
-        Root.Velocity = Vector3.zero
-        
-        -- Lógica corrigida: Usa MoveDirection direto.
-        -- O MoveDirection já calcula o W como "frente" baseado na câmera.
-        if Hum.MoveDirection.Magnitude > 0 then
-            Root.CFrame = Root.CFrame + (Hum.MoveDirection * FlySpeed)
-        end
-    end
-
-    -- 2. NOCLIP (RenderStepped)
-    if Noclip_Enabled and Char then
-        for _, part in pairs(Char:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                part.CanCollide = false
-            end
-        end
-    end
-
-    -- 3. JAIL
-    if F2_Mode and ZombieFolder then
-        for _, z in pairs(ZombieFolder:GetChildren()) do
-            local ZR = z:FindFirstChild("HumanoidRootPart") or z:FindFirstChild("Torso")
-            if ZR then
-                if (ZR.Position - JailPos).Magnitude > 2 then
-                    local Jitter = Vector3.new(math.random(-1,1)/2, 0, math.random(-1,1)/2)
-                    ZR.CFrame = CFrame.new(JailPos + Jitter)
-                    ZR.Velocity = Vector3.zero
+-------------------------------------------------------------------------
+-- 5. F1 BRING & F2 JAIL
+-------------------------------------------------------------------------
+local function BringZombiesLoop()
+    if not Bring_Enabled or F2_Mode then return end
+    local LookVector = Camera.CFrame.LookVector
+    local CamPos = Camera.CFrame.Position
+    local TargetPos = CamPos + (LookVector * BringDistance)
+    if ZombieFolder then
+        for _, zombie in pairs(ZombieFolder:GetChildren()) do
+            if zombie:IsA("Model") then
+                local ZRoot = zombie:FindFirstChild("HumanoidRootPart") or zombie:FindFirstChild("Torso")
+                local ZHead = zombie:FindFirstChild("Head")
+                local ZHum = zombie:FindFirstChild("Humanoid")
+                if ZRoot and ZHead and ZHum and ZHum.Health > 0 then
+                    local HeadOffset = ZHead.Position - ZRoot.Position
+                    local FinalPos = TargetPos - HeadOffset
+                    local BackToPlayer = CFrame.new(FinalPos, FinalPos + LookVector)
+                    ZRoot.CFrame = BackToPlayer
+                    ZRoot.Anchored = true; ZRoot.Velocity = Vector3.zero
                 end
-                ZR.Anchored = false
             end
         end
     end
+end
 
-    -- 4. SMART FIRE
-    if F3_Mode and not IsHoldingFireGun() then
-        local Target = nil
-        if ZombieFolder then
-            for _, z in pairs(ZombieFolder:GetChildren()) do
-                local H = z:FindFirstChild("Head")
-                local Humm = z:FindFirstChild("Humanoid")
-                if H and Humm and Humm.Health > 0 then Target = H; break end
-            end
-        end
-        if Target then
-            Camera.CFrame = CFrame.new(Camera.CFrame.Position, Target.Position)
-            if not IsShooting then
-                IsShooting = true
-                VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
-                task.wait(0.01)
-                VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
-                IsShooting = false
+local function JailLoop()
+    if not F2_Mode then return end
+    if ZombieFolder then
+        for _, zombie in pairs(ZombieFolder:GetChildren()) do
+            if zombie:IsA("Model") then
+                local Root = zombie:FindFirstChild("HumanoidRootPart") or zombie:FindFirstChild("Torso")
+                if Root then
+                    if (Root.Position - JailPos).Magnitude > 2 then
+                        local RandomJitter = Vector3.new(math.random(-1,1)/2, 0, math.random(-1,1)/2)
+                        Root.CFrame = CFrame.new(JailPos + RandomJitter)
+                        Root.Velocity = Vector3.zero 
+                    end
+                    Root.Anchored = false 
+                end
             end
         end
     end
+end
 
-    -- 5. HITBOX
-    if Hitbox_Enabled and ZombieFolder then
+-------------------------------------------------------------------------
+-- 6. F3 AUTO FIRE
+-------------------------------------------------------------------------
+local function GetAnyTarget()
+    if ZombieFolder then
         for _, z in pairs(ZombieFolder:GetChildren()) do
-            local h = z:FindFirstChild("Head")
-            if h then
-                h.Size = Vector3.new(HeadSize, HeadSize, HeadSize)
-                h.Transparency = 0.5; h.CanCollide = false; h.Color = Color3.fromRGB(255, 0, 255)
-            end
+            local Head = z:FindFirstChild("Head")
+            local Hum = z:FindFirstChild("Humanoid")
+            if Head and Hum and Hum.Health > 0 then return Head end
         end
     end
+    return nil
+end
 
-    -- 6. COMBINE AMMO
-    if CombineAmmo_Enabled then
-        local locs = {LocalPlayer.Backpack, LocalPlayer.Character}
-        for _, loc in pairs(locs) do
-            if loc then
-                for _, t in pairs(loc:GetChildren()) do
-                    if t:IsA("Tool") then
-                        local f = t:FindFirstChild("Info") or t:FindFirstChild("Settings") or t:FindFirstChild("Configuration")
-                        if f then
-                            local C = f:FindFirstChild("Clip") or f:FindFirstChild("Ammo")
-                            local R = f:FindFirstChild("Reserve") or f:FindFirstChild("Stored") or f:FindFirstChild("StoredAmmo")
-                            if C and R and R.Value > 0 then
-                                C.Value = C.Value + R.Value
-                                R.Value = 0
+local function AimAndShootLoop()
+    if not F3_Mode then return end
+    if IsHoldingFireGun() then return end
+    local TargetHead = GetAnyTarget()
+    if TargetHead then
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, TargetHead.Position)
+        if not IsShooting then
+            IsShooting = true
+            VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
+            task.wait(0.01) 
+            VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
+            IsShooting = false
+        end
+    end
+end
+
+-------------------------------------------------------------------------
+-- 7. HITBOX & COMBINE AMMO
+-------------------------------------------------------------------------
+local function ExpandHitbox(model)
+    if not Hitbox_Enabled then return end
+    local head = model:FindFirstChild("Head")
+    if head then
+        head.Size = Vector3.new(HeadSize, HeadSize, HeadSize)
+        head.Transparency = 0.5; head.CanCollide = false; head.Color = Color3.fromRGB(255, 0, 255) 
+    end
+end
+
+local function RunCombineAmmo()
+    local locations = {LocalPlayer.Backpack, LocalPlayer.Character}
+    for _, location in pairs(locations) do
+        if location then
+            for _, tool in pairs(location:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local folders = {"Info", "ServerInfo", "Settings", "Configuration"}
+                    for _, fName in pairs(folders) do
+                        local folder = tool:FindFirstChild(fName)
+                        if folder then
+                            local Clip = folder:FindFirstChild("Clip") or folder:FindFirstChild("Ammo") or folder:FindFirstChild("CurrentAmmo")
+                            local Reserve = folder:FindFirstChild("Reserve") or folder:FindFirstChild("Stored") or folder:FindFirstChild("StoredAmmo") or folder:FindFirstChild("MaxAmmo")
+                            if Clip and Reserve and (Clip:IsA("IntValue") or Clip:IsA("NumberValue")) and (Reserve:IsA("IntValue") or Reserve:IsA("NumberValue")) then
+                                if Reserve.Value > 0 then
+                                    local total = Clip.Value + Reserve.Value
+                                    Clip.Value = total; Reserve.Value = 0
+                                end
                             end
                         end
                     end
@@ -298,205 +383,161 @@ local function LogicLoop()
             end
         end
     end
-
-    -- 7. AUTO SWITCH
-    if AutoSwitch_Enabled then
-        if Char then
-            local Tool = Char:FindFirstChildOfClass("Tool")
-            local Backpack = LocalPlayer:FindFirstChild("Backpack")
-            if not Tool and Backpack then
-                local tools = Backpack:GetChildren()
-                for _,t in pairs(tools) do if t:IsA("Tool") then Char.Humanoid:EquipTool(t); break end end
-            elseif Tool and Backpack then
-                local ammo = GetCurrentAmmo(Tool)
-                if ammo <= 0 then
-                    local tools = Backpack:GetChildren()
-                    for _,t in pairs(tools) do if t:IsA("Tool") and t ~= Tool then Char.Humanoid:EquipTool(t); break end end
-                end
-            end
-        end
-    end
-
-    -- 8. BRING (Costas p/ Player)
-    if Bring_Enabled and not F2_Mode and ZombieFolder then
-        local LookVec = Camera.CFrame.LookVector
-        -- Posição Alvo = 8 studs na frente da câmera
-        local TargetPos = Camera.CFrame.Position + (LookVec * BringDistance)
-        
-        for _, z in pairs(ZombieFolder:GetChildren()) do
-            local R = z:FindFirstChild("HumanoidRootPart")
-            if R then
-                -- LookAt = TargetPos + LookVec
-                -- Isso faz o zumbi olhar na mesma direção que você olha.
-                -- Logo, as costas dele ficam viradas para você.
-                R.CFrame = CFrame.new(TargetPos, TargetPos + LookVec)
-                R.Anchored = true; R.Velocity = Vector3.zero
-            end
-        end
-    end
-
-    CheckAndRemoveLava()
 end
 
--- HOOK PARA NOCLIP FÍSICO (Stepped é melhor para física)
-table.insert(Connections, RunService.Stepped:Connect(function()
-    if Noclip_Enabled and LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                part.CanCollide = false
-            end
-        end
-    end
-end))
+-------------------------------------------------------------------------
+-- 8. MENU UI
+-------------------------------------------------------------------------
+local function CriarMenu()
+    if CoreGui:FindFirstChild("ZombieV1") then CoreGui.ZombieV1:Destroy() end
+    if LocalPlayer.PlayerGui:FindFirstChild("ZombieV1") then LocalPlayer.PlayerGui.ZombieV1:Destroy() end
 
-table.insert(Connections, RunService.RenderStepped:Connect(LogicLoop))
-
---------------------------------------------------------------------------------
--- 4. INTERFACE GRÁFICA (UI)
---------------------------------------------------------------------------------
-
-local function CreateUI()
-    for _, v in pairs(CoreGui:GetChildren()) do if v.Name == "ZombieV63" then v:Destroy() end end
-    
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "ZombieV63"
-    ScreenGui.Parent = CoreGui
-    
-    local SoundClick = Instance.new("Sound", ScreenGui)
-    SoundClick.SoundId = "rbxassetid://6895079853" 
-    SoundClick.Volume = 0.6
+    ScreenGui.Name = "ZombieV1"
+    if pcall(function() ScreenGui.Parent = CoreGui end) then else ScreenGui.Parent = LocalPlayer.PlayerGui end
 
-    -- DRAGGABLE
-    local function MakeDraggable(frame)
-        local dragging, dragInput, dragStart, startPos
-        frame.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true; dragStart = input.Position; startPos = frame.Position
-                input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
-            end
-        end)
-        frame.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
-        end)
-        UserInputService.InputChanged:Connect(function(input)
-            if input == dragInput and dragging then
-                local delta = input.Position - dragStart
-                local targetPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-                TweenService:Create(frame, TweenInfo.new(0.1), {Position = targetPos}):Play()
-            end
-        end)
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Parent = ScreenGui; MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    MainFrame.Position = UDim2.new(0.5, -110, 0.3, 0); MainFrame.Size = UDim2.new(0, 220, 0, 560) 
+    MainFrame.Active = true; MainFrame.Draggable = true; MainFrame.BorderSizePixel = 0
+    local UICorner = Instance.new("UICorner"); UICorner.CornerRadius = UDim.new(0, 8); UICorner.Parent = MainFrame
+
+    local Header = Instance.new("Frame"); Header.Parent = MainFrame; Header.BackgroundColor3 = Color3.fromRGB(40, 40, 40); Header.Size = UDim2.new(1, 0, 0, 35)
+    local HeaderCorner = Instance.new("UICorner"); HeaderCorner.CornerRadius = UDim.new(0, 8); HeaderCorner.Parent = Header
+    local HeaderFill = Instance.new("Frame"); HeaderFill.Parent = Header; HeaderFill.BackgroundColor3 = Color3.fromRGB(40, 40, 40); HeaderFill.Size = UDim2.new(1, 0, 0, 10); HeaderFill.Position = UDim2.new(0, 0, 1, -10); HeaderFill.BorderSizePixel = 0
+
+    local Title = Instance.new("TextLabel"); Title.Parent = Header; Title.Text = "ZOMBIE V1"
+    Title.Size = UDim2.new(0.7, 0, 1, 0); Title.Position = UDim2.new(0.05, 0, 0, 0); Title.BackgroundTransparency = 1; Title.TextColor3 = Color3.fromRGB(0, 255, 120); Title.Font = Enum.Font.GothamBlack; Title.TextSize = 14; Title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local MinBtn = Instance.new("TextButton"); MinBtn.Parent = Header; MinBtn.Text = "-"; MinBtn.Size = UDim2.new(0, 30, 0, 30); MinBtn.Position = UDim2.new(1, -35, 0, 2)
+    MinBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60); MinBtn.TextColor3 = Color3.new(1,1,1); MinBtn.Font = Enum.Font.GothamBold; MinBtn.TextSize = 18
+    local MinCorner = Instance.new("UICorner"); MinCorner.CornerRadius = UDim.new(0, 6); MinCorner.Parent = MinBtn
+
+    local Container = Instance.new("ScrollingFrame"); Container.Parent = MainFrame; Container.BackgroundTransparency = 1; Container.Size = UDim2.new(1, -10, 1, -45); Container.Position = UDim2.new(0, 5, 0, 40); Container.BorderSizePixel = 0; Container.ScrollBarThickness = 2
+    local UIList = Instance.new("UIListLayout"); UIList.Parent = Container; UIList.SortOrder = Enum.SortOrder.LayoutOrder; UIList.Padding = UDim.new(0, 5)
+
+    local Minimized = false
+    MinBtn.MouseButton1Click:Connect(function()
+        Minimized = not Minimized
+        if Minimized then Container.Visible = false; MainFrame:TweenSize(UDim2.new(0, 220, 0, 35), "Out", "Quad", 0.3, true); MinBtn.Text = "+"
+        else Container.Visible = true; MainFrame:TweenSize(UDim2.new(0, 220, 0, 560), "Out", "Quad", 0.3, true); MinBtn.Text = "-" end
+    end)
+
+    local function CreateButton(text, callback, colorOff)
+        local btn = Instance.new("TextButton"); btn.Parent = Container; btn.Text = text; btn.Size = UDim2.new(1, 0, 0, 32)
+        btn.BackgroundColor3 = colorOff or Color3.fromRGB(35, 35, 35); btn.TextColor3 = Color3.fromRGB(200, 200, 200); btn.Font = Enum.Font.GothamSemibold; btn.TextSize = 12; btn.AutoButtonColor = true
+        local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(0, 6); bc.Parent = btn
+        btn.MouseButton1Click:Connect(callback)
+        return btn
     end
 
-    -- FLOAT BTN
-    local FloatBtn = Instance.new("ImageButton", ScreenGui)
-    FloatBtn.Size = UDim2.new(0, 50, 0, 50); FloatBtn.Position = UDim2.new(0.05, 0, 0.2, 0)
-    FloatBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); FloatBtn.Visible = false
-    local FC = Instance.new("UICorner", FloatBtn); FC.CornerRadius = UDim.new(1,0)
-    local FS = Instance.new("UIStroke", FloatBtn); FS.Color = Color3.fromRGB(0, 200, 255); FS.Thickness = 2
-    local FT = Instance.new("TextLabel", FloatBtn); FT.Size = UDim2.new(1,0,1,0); FT.BackgroundTransparency=1; FT.Text="Z"; FT.Font=Enum.Font.GothamBlack; FT.TextSize=24; FT.TextColor3=Color3.fromRGB(0,200,255)
-    MakeDraggable(FloatBtn)
-
-    -- MAIN FRAME
-    local MainFrame = Instance.new("Frame", ScreenGui)
-    MainFrame.Size = UDim2.new(0, 250, 0, 550) 
-    MainFrame.Position = UDim2.new(0.5, -125, 0.5, -275)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    local MC = Instance.new("UICorner", MainFrame); MC.CornerRadius = UDim.new(0, 10)
-    local MS = Instance.new("UIStroke", MainFrame); MS.Color = Color3.fromRGB(50, 50, 60); MS.Thickness = 1
-    MakeDraggable(MainFrame)
-
-    -- HEADER
-    local Header = Instance.new("Frame", MainFrame)
-    Header.Size = UDim2.new(1, 0, 0, 40); Header.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-    local HC = Instance.new("UICorner", Header); HC.CornerRadius = UDim.new(0, 10)
-    local HTilde = Instance.new("TextLabel", Header); HTilde.Text=" ZOMBIE V1"; HTilde.Size=UDim2.new(0.8,0,1,0); HTilde.BackgroundTransparency=1; HTilde.TextColor3=Color3.fromRGB(0,200,255); HTilde.Font=Enum.Font.GothamBold; HTilde.TextSize=16; HTilde.TextXAlignment=Enum.TextXAlignment.Left; HTilde.Position=UDim2.new(0.05,0,0,0)
-    local Mini = Instance.new("TextButton", Header); Mini.Text="-"; Mini.Size=UDim2.new(0,30,0,30); Mini.Position=UDim2.new(1,-35,0.5,-15); Mini.BackgroundColor3=Color3.fromRGB(40,40,45); Mini.TextColor3=Color3.new(1,1,1); local MiC=Instance.new("UICorner", Mini); MiC.CornerRadius=UDim.new(0,6)
-
-    -- LISTA
-    local Container = Instance.new("ScrollingFrame", MainFrame)
-    Container.Size = UDim2.new(1, -16, 1, -50); Container.Position = UDim2.new(0, 8, 0, 45); Container.BackgroundTransparency=1; Container.ScrollBarThickness=2
-    local List = Instance.new("UIListLayout", Container); List.Padding = UDim.new(0, 6); List.SortOrder = Enum.SortOrder.LayoutOrder
-
-    -- TOGGLE CREATOR
-    local function AddToggle(text, default, keyCode, callback)
-        local Btn = Instance.new("TextButton", Container)
-        Btn.Size = UDim2.new(1, 0, 0, 38); Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 35); Btn.Text = ""; Btn.AutoButtonColor = false
-        local BC = Instance.new("UICorner", Btn); BC.CornerRadius = UDim.new(0, 6)
-        
-        local Lbl = Instance.new("TextLabel", Btn); Lbl.Text=text; Lbl.Size=UDim2.new(0.7,0,1,0); Lbl.Position=UDim2.new(0.05,0,0,0); Lbl.BackgroundTransparency=1; Lbl.TextColor3=Color3.fromRGB(200,200,200); Lbl.Font=Enum.Font.GothamSemibold; Lbl.TextSize=13; Lbl.TextXAlignment=Enum.TextXAlignment.Left
-        
-        local Ind = Instance.new("Frame", Btn); Ind.Size=UDim2.new(0,40,0,4); Ind.Position=UDim2.new(1,-45,0.5,-2); Ind.BackgroundColor3=Color3.fromRGB(50,50,50); local IC=Instance.new("UICorner", Ind); IC.CornerRadius=UDim.new(1,0)
-        local Circ = Instance.new("Frame", Ind); Circ.Size=UDim2.new(0,12,0,12); Circ.Position=UDim2.new(0,-4,0.5,-6); Circ.BackgroundColor3=Color3.fromRGB(100,100,100); local CC=Instance.new("UICorner", Circ); CC.CornerRadius=UDim.new(1,0)
-        
-        local Enabled = default
-        local function Update()
-            if Enabled then
-                TweenService:Create(Circ, TweenInfo.new(0.2), {Position=UDim2.new(1,-8,0.5,-6), BackgroundColor3=Color3.fromRGB(0,255,150)}):Play()
-                TweenService:Create(Ind, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(0,100,50)}):Play()
-                TweenService:Create(Lbl, TweenInfo.new(0.2), {TextColor3=Color3.new(1,1,1)}):Play()
-            else
-                TweenService:Create(Circ, TweenInfo.new(0.2), {Position=UDim2.new(0,-4,0.5,-6), BackgroundColor3=Color3.fromRGB(100,100,100)}):Play()
-                TweenService:Create(Ind, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(50,50,50)}):Play()
-                TweenService:Create(Lbl, TweenInfo.new(0.2), {TextColor3=Color3.fromRGB(200,200,200)}):Play()
-            end
-            callback(Enabled, Lbl) 
-        end
-        
-        Btn.MouseButton1Click:Connect(function() SoundClick:Play(); Enabled = not Enabled; Update() end)
-        if keyCode then
-            ButtonToggles[keyCode] = function() SoundClick:Play(); Enabled = not Enabled; Update() end
-        end
-    end
-
-    -- BOTÕES
-    AddToggle("F2: Jail (Micro Move)", false, Enum.KeyCode.F2, function(s) F2_Mode = s; if not s then UnfreezeZombies() end end)
-    AddToggle("F3: Smart Fire", false, Enum.KeyCode.F3, function(s) F3_Mode = s end)
-    AddToggle("F1: Bring (Costas)", false, Enum.KeyCode.F1, function(s) Bring_Enabled = s; if not s then UnfreezeZombies() end end)
-    
-    AddToggle("Fly (Voar - WASD)", false, nil, function(s) Fly_Enabled = s end)
-    AddToggle("Noclip (Atravessar)", false, nil, function(s) Noclip_Enabled = s end)
-    
-    AddToggle("Auto Remove Lava", false, nil, function(s) RemoveLava_Enabled = s; if s then CheckAndRemoveLava() end end)
-    AddToggle("Hitbox Gigante (30)", false, nil, function(s) Hitbox_Enabled = s end)
-    AddToggle("Auto Switch (No Ammo)", false, nil, function(s) AutoSwitch_Enabled = s end)
-    AddToggle("Combine Ammo", false, nil, function(s) CombineAmmo_Enabled = s end)
-    AddToggle("Auto Loot (Killzone)", false, nil, function(s) AutoLoot_Enabled = s; if s then PerformLootRun() end end)
-
-    -- BOTÃO DE TEMPO
-    local TimeBtn = Instance.new("TextButton", Container)
-    TimeBtn.Size = UDim2.new(1, 0, 0, 35); TimeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70); TimeBtn.Text = "Tempo Loot: 60s"; TimeBtn.TextColor3 = Color3.new(1,1,1); TimeBtn.Font = Enum.Font.GothamBold; local TC = Instance.new("UICorner", TimeBtn); TC.CornerRadius = UDim.new(0,6)
-    
-    TimeBtn.MouseButton1Click:Connect(function()
-        SoundClick:Play()
-        if LootInterval == 30 then LootInterval = 60
-        elseif LootInterval == 60 then LootInterval = 120
-        elseif LootInterval == 120 then LootInterval = 300
-        else LootInterval = 30 end
-        TimeBtn.Text = "Tempo Loot: " .. LootInterval .. "s"
+    -- F1 BRING (Agora no F1)
+    local B_F1 = CreateButton("BRING (F1): OFF", function() 
+        Bring_Enabled = not Bring_Enabled
+        Notify("BRING (F1)", Bring_Enabled and "ATIVADO" or "DESATIVADO")
+        if not Bring_Enabled and ZombieFolder then for _,z in pairs(ZombieFolder:GetChildren()) do local r = z:FindFirstChild("HumanoidRootPart"); if r then r.Anchored = false end end end
     end)
     
-    local Space = Instance.new("Frame", Container); Space.Size=UDim2.new(1,0,0,10); Space.BackgroundTransparency=1
+    -- DISTANCIA DO BRING
+    local B_Dist = CreateButton("DISTÂNCIA BRING: " .. BringDistance, function()
+        if BringDistance == 5 then BringDistance = 10
+        elseif BringDistance == 10 then BringDistance = 15
+        elseif BringDistance == 15 then BringDistance = 20
+        else BringDistance = 5 end
+    end)
 
-    -- BOTÃO FECHAR
-    local CloseBtn = Instance.new("TextButton", Container)
-    CloseBtn.Size = UDim2.new(1, 0, 0, 35); CloseBtn.BackgroundColor3 = Color3.fromRGB(150, 40, 40); CloseBtn.Text = "FECHAR SCRIPT"; CloseBtn.TextColor3 = Color3.new(1,1,1); CloseBtn.Font = Enum.Font.GothamBlack; local CC = Instance.new("UICorner", CloseBtn); CC.CornerRadius = UDim.new(0,6)
+    -- FLY 
+    local B_Fly = CreateButton("FLY (VOO): OFF", function() 
+        Fly_Enabled = not Fly_Enabled
+        Notify("FLY", Fly_Enabled and "ATIVADO" or "DESATIVADO")
+        if Fly_Enabled then FlyFunction() end
+    end)
     
-    CloseBtn.MouseButton1Click:Connect(function()
-        ScreenGui:Destroy()
+    -- VELOCIDADE FLY
+    local B_FlySpeed = CreateButton("VELOCIDADE FLY: " .. FlySpeed, function()
+        if FlySpeed == 20 then FlySpeed = 50
+        elseif FlySpeed == 50 then FlySpeed = 100
+        else FlySpeed = 20 end
+    end)
+
+    local B_Noclip = CreateButton("NOCLIP: OFF", function() Noclip_Enabled = not Noclip_Enabled; Notify("NOCLIP", Noclip_Enabled and "ATIVADO" or "DESATIVADO") end)
+
+    local B_F2 = CreateButton("F2 (JAIL): OFF", function() 
+        F2_Mode = not F2_Mode; Notify("F2 JAIL", F2_Mode and "ATIVADO" or "DESATIVADO")
+        if not F2_Mode and ZombieFolder then for _,z in pairs(ZombieFolder:GetChildren()) do local r = z:FindFirstChild("HumanoidRootPart"); if r then r.Anchored = false end end end
+    end)
+
+    local B_F3 = CreateButton("F3 (FIRE): OFF", function() F3_Mode = not F3_Mode; Notify("F3 FIRE", F3_Mode and "ATIVADO" or "DESATIVADO") end)
+
+    local B_Switch = CreateButton("AUTO SWITCH: OFF", function() AutoSwitch_Enabled = not AutoSwitch_Enabled; Notify("AUTO SWITCH", AutoSwitch_Enabled and "ATIVADO" or "DESATIVADO") end)
+    local B_Loot = CreateButton("AUTO LOOT (TP): OFF", function() AutoLoot_Enabled = not AutoLoot_Enabled; if AutoLoot_Enabled then PerformLootRun() end end)
+    local B_Time = CreateButton("TEMPO LOOT: 60s", function()
+        if LootInterval == 30 then LootInterval = 60 elseif LootInterval == 60 then LootInterval = 120 elseif LootInterval == 120 then LootInterval = 300 else LootInterval = 30 end
+    end)
+    local B_Hitbox = CreateButton("HITBOX: OFF", function() Hitbox_Enabled = not Hitbox_Enabled end)
+    local B_Ammo = CreateButton("EXTENDED MAG: OFF", function() CombineAmmo_Enabled = not CombineAmmo_Enabled; Notify("MUNIÇÃO", CombineAmmo_Enabled and "ATIVADO" or "DESATIVADO") end)
+    
+    local B_Lava = CreateButton("REMOVER LAVA", function()
+        if workspace:FindFirstChild("TouchLava") then workspace.TouchLava:Destroy(); Notify("MAPA", "Lava removida com sucesso!") else Notify("MAPA", "Lava não encontrada.") end
+    end, Color3.fromRGB(200, 80, 0))
+
+    local B_Close = CreateButton("FECHAR SCRIPT", function()
+        Bring_Enabled = false; Fly_Enabled = false; Noclip_Enabled = false; F2_Mode = false; F3_Mode = false; Hitbox_Enabled = false
+        AutoLoot_Enabled = false; IsShooting = false; AutoSwitch_Enabled = false; CombineAmmo_Enabled = false
+        if ZombieFolder then for _,z in pairs(ZombieFolder:GetChildren()) do local r = z:FindFirstChild("HumanoidRootPart"); if r then r.Anchored = false end end end
         for _,c in pairs(Connections) do c:Disconnect() end
-        Connections = nil
-        ButtonToggles = nil
+        ScreenGui:Destroy()
+    end, Color3.fromRGB(100, 0, 0))
+
+    task.spawn(function()
+        while ScreenGui.Parent do
+            local function Paint(btn, state, txtOn, txtOff)
+                btn.Text = state and txtOn or txtOff
+                btn.TextColor3 = state and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(200, 200, 200)
+                btn.BackgroundColor3 = state and Color3.fromRGB(30, 50, 30) or Color3.fromRGB(35, 35, 35)
+            end
+            Paint(B_F1, Bring_Enabled, "BRING (F1): ON", "BRING (F1): OFF")
+            Paint(B_Fly, Fly_Enabled, "FLY (VOO): ON", "FLY (VOO): OFF")
+            Paint(B_Noclip, Noclip_Enabled, "NOCLIP: ON", "NOCLIP: OFF")
+            Paint(B_F2, F2_Mode, "F2 (JAIL): ON", "F2 (JAIL): OFF")
+            Paint(B_F3, F3_Mode, "F3 (FIRE): ON", "F3 (FIRE): OFF")
+            Paint(B_Switch, AutoSwitch_Enabled, "AUTO SWITCH: ON", "AUTO SWITCH: OFF")
+            Paint(B_Loot, AutoLoot_Enabled, "AUTO LOOT (TP): ON", "AUTO LOOT (TP): OFF")
+            Paint(B_Hitbox, Hitbox_Enabled, "HITBOX: ON", "HITBOX: OFF")
+            Paint(B_Ammo, CombineAmmo_Enabled, "EXTENDED MAG: ON", "EXTENDED MAG: OFF")
+            
+            B_Time.Text = "TEMPO LOOT: " .. LootInterval .. "s"
+            B_Dist.Text = "DISTÂNCIA BRING: " .. BringDistance
+            B_FlySpeed.Text = "VELOCIDADE FLY: " .. FlySpeed
+            task.wait(0.2)
+        end
     end)
 
-    local function ToggleMini() SoundClick:Play(); MainFrame.Visible = not MainFrame.Visible; FloatBtn.Visible = not MainFrame.Visible end
-    Mini.MouseButton1Click:Connect(ToggleMini); FloatBtn.MouseButton1Click:Connect(ToggleMini)
-end
-
-if Connections then
     table.insert(Connections, UserInputService.InputBegan:Connect(function(i,p)
-        if not p and ButtonToggles[i.KeyCode] then ButtonToggles[i.KeyCode]() end
+        if not p then
+            if i.KeyCode == Enum.KeyCode.F1 then
+                Bring_Enabled = not Bring_Enabled
+                Notify("BRING (F1)", Bring_Enabled and "ATIVADO" or "DESATIVADO")
+                if not Bring_Enabled and ZombieFolder then for _,z in pairs(ZombieFolder:GetChildren()) do local r = z:FindFirstChild("HumanoidRootPart"); if r then r.Anchored = false end end end
+            elseif i.KeyCode == Enum.KeyCode.F2 then
+                F2_Mode = not F2_Mode; Notify("F2 JAIL", F2_Mode and "ATIVADO" or "DESATIVADO")
+                if not F2_Mode and ZombieFolder then for _,z in pairs(ZombieFolder:GetChildren()) do local r = z:FindFirstChild("HumanoidRootPart"); if r then r.Anchored = false end end end
+            elseif i.KeyCode == Enum.KeyCode.F3 then
+                F3_Mode = not F3_Mode; Notify("F3 FIRE", F3_Mode and "ATIVADO" or "DESATIVADO")
+            end
+        end
     end))
 end
 
-CreateUI()
-Notify("ZOMBIE V63", "Controles Fly Corrigidos!")
+if ZombieFolder then
+    table.insert(Connections, ZombieFolder.ChildAdded:Connect(function(c) if c:IsA("Model") and Hitbox_Enabled then task.wait(0.1); ExpandHitbox(c) end end))
+    table.insert(Connections, ZombieFolder.ChildRemoved:Connect(function(c) local n = c.Name:lower(); if n:match("fire") or n:match("fogo") then Notify("DROP DE FOGO", "Zumbi de fogo morreu!") end end))
+end
+
+table.insert(Connections, RunService.RenderStepped:Connect(function()
+    JailLoop(); AimAndShootLoop(); BringZombiesLoop()  
+    if Hitbox_Enabled and ZombieFolder then for _,z in pairs(ZombieFolder:GetChildren()) do if z:IsA("Model") then ExpandHitbox(z) end end end
+    if CombineAmmo_Enabled then RunCombineAmmo() end
+end))
+
+CriarMenu()
