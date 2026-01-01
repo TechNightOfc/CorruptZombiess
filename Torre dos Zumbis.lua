@@ -1,17 +1,16 @@
 --[[ 
-    ZOMBIE TESTER V61 - RESTORED & FIXED
+    ZOMBIE TESTER V62 - FLY & NOCLIP
     
-    CORREÇÕES CRÍTICAS:
-    1. AUTO LOOT: 
-       - Agora visita Spawns, Caixas, Plankton e Jail.
-       - PAUSA funções (F1, F2, F3) durante o loot.
-       - RESTAURA as funções automaticamente ao terminar.
-       - Botão de TEMPO adicionado de volta.
-    2. F1 BRING: 
-       - Zumbis na frente (distância 8) e de costas para o player.
-    3. UI:
-       - Visual Profissional mantido.
-       - Botão de Fechar e Tempo incluídos.
+    NOVIDADES:
+    1. FLY: Voar pelo mapa (Controlado pelo movimento/joystick).
+    2. NOCLIP: Atravessar paredes.
+    3. AUTO LOOT INTELIGENTE: Salva e restaura Fly/Noclip automaticamente.
+    
+    MANTIDO:
+    - F1, F2, F3 (Sincronizados).
+    - Auto Switch, Combine Ammo, Hitbox.
+    - Remove Lava.
+    - Interface Profissional Flutuante.
 ]]
 
 -- 1. SERVIÇOS E SETUP
@@ -28,9 +27,9 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 -- 2. VARIÁVEIS GLOBAIS
 local Connections = {} 
-local ButtonToggles = {} -- Para sincronizar teclas e botões UI
+local ButtonToggles = {} 
 
--- Estados
+-- Estados (Toggles)
 local F2_Mode = false
 local F3_Mode = false
 local Hitbox_Enabled = false
@@ -39,15 +38,18 @@ local CombineAmmo_Enabled = false
 local AutoSwitch_Enabled = false
 local Bring_Enabled = false
 local RemoveLava_Enabled = false
+local Fly_Enabled = false       -- [[ NOVO ]]
+local Noclip_Enabled = false    -- [[ NOVO ]]
 
 -- Configurações
 local JailPos = Vector3.new(133, 431, -135)
-local LootInterval = 60 -- Tempo padrão
+local LootInterval = 60 
 local LastLootTime = 0
 local IsTeleporting = false
 local HeadSize = 30
-local BringDistance = 8 -- Ajustado para não bugar na câmera
+local BringDistance = 8 
 local IsShooting = false
+local FlySpeed = 1 -- Velocidade do Voo
 
 -- Pastas
 local MysteryFolder = workspace:FindFirstChild("MysteryBoxes")
@@ -106,7 +108,7 @@ local function CheckAndRemoveLava()
     end
 end
 
--- --- AUTO LOOT COMPLEXO (SALVA E RESTAURA) ---
+-- --- AUTO LOOT COMPLEXO (SALVA E RESTAURA TUDO) ---
 local function PerformLootRun()
     if IsTeleporting then return end
     IsTeleporting = true
@@ -121,15 +123,15 @@ local function PerformLootRun()
     local Saved_F1 = Bring_Enabled
     local Saved_F2 = F2_Mode
     local Saved_F3 = F3_Mode
-    local Saved_Switch = AutoSwitch_Enabled
+    local Saved_Fly = Fly_Enabled
+    local Saved_Noclip = Noclip_Enabled
     
-    -- 2. DESATIVAR TUDO TEMPORARIAMENTE
-    if Saved_F1 or Saved_F2 or Saved_F3 then
+    -- 2. DESATIVAR PARA O LOOT
+    if Saved_F1 or Saved_F2 or Saved_F3 or Saved_Fly or Saved_Noclip then
         Notify("AUTO LOOT", "Pausando funções...")
-        Bring_Enabled = false
-        F2_Mode = false
-        F3_Mode = false
-        UnfreezeZombies() -- Solta os zumbis para não bugarem
+        Bring_Enabled = false; F2_Mode = false; F3_Mode = false
+        Fly_Enabled = false; Noclip_Enabled = false
+        UnfreezeZombies() 
     end
 
     local Root = Character.HumanoidRootPart
@@ -137,20 +139,19 @@ local function PerformLootRun()
 
     -- ROTA 1: KILLZONE (JAIL)
     Root.CFrame = CFrame.new(JailPos)
-    for i = 1, 15 do RunService.Heartbeat:Wait() end -- Espera coletar
+    for i = 1, 15 do RunService.Heartbeat:Wait() end 
 
-    -- ROTA 2: SPAWNS (Verificando se pasta existe a cada loop)
+    -- ROTA 2: SPAWNS
     if not SpawnsFolder then 
         local M = workspace:FindFirstChild("LoadedMap")
         SpawnsFolder = M and M:FindFirstChild("ZombieSpawns")
     end
-    
     if SpawnsFolder then
         for _, s in pairs(SpawnsFolder:GetChildren()) do
             if not AutoLoot_Enabled then break end
             if s:IsA("BasePart") then Root.CFrame = s.CFrame
             elseif s:IsA("Model") and s.PrimaryPart then Root.CFrame = s.PrimaryPart.CFrame end
-            RunService.Heartbeat:Wait() -- Espera 1 frame por spawn
+            RunService.Heartbeat:Wait()
         end
     end
     
@@ -172,20 +173,22 @@ local function PerformLootRun()
         end
     end
 
-    -- 3. VOLTA E RESTAURAÇÃO
+    -- 3. RESTAURAÇÃO
     Root.CFrame = SavedPos
     
-    if Saved_F1 or Saved_F2 or Saved_F3 then
+    if Saved_F1 or Saved_F2 or Saved_F3 or Saved_Fly or Saved_Noclip then
         Notify("AUTO LOOT", "Restaurando funções!")
         Bring_Enabled = Saved_F1
         F2_Mode = Saved_F2
         F3_Mode = Saved_F3
+        Fly_Enabled = Saved_Fly
+        Noclip_Enabled = Saved_Noclip
     end
     
     IsTeleporting = false
 end
 
--- LOOP DE CHECAGEM DO LOOT
+-- LOOP DE TEMPO DO LOOT
 task.spawn(function()
     while true do
         if AutoLoot_Enabled then
@@ -198,31 +201,68 @@ task.spawn(function()
     end
 end)
 
--- --- LOOPS DE COMBATE ---
+-- --- LOOPS GERAIS ---
 local function LogicLoop()
-    -- JAIL
-    if F2_Mode and ZombieFolder then
-        for _, z in pairs(ZombieFolder:GetChildren()) do
-            local Root = z:FindFirstChild("HumanoidRootPart") or z:FindFirstChild("Torso")
-            if Root then
-                if (Root.Position - JailPos).Magnitude > 2 then
-                    local Jitter = Vector3.new(math.random(-1,1)/2, 0, math.random(-1,1)/2)
-                    Root.CFrame = CFrame.new(JailPos + Jitter)
-                    Root.Velocity = Vector3.zero
-                end
-                Root.Anchored = false
+    local Char = LocalPlayer.Character
+    local Root = Char and Char:FindFirstChild("HumanoidRootPart")
+    local Hum = Char and Char:FindFirstChild("Humanoid")
+
+    -- 1. FLY (VOAR)
+    if Fly_Enabled and Root and Hum then
+        -- Simples Fly CFrame baseado na Câmera e MoveDirection
+        local CamCF = Camera.CFrame
+        local MoveDir = Hum.MoveDirection
+        
+        -- Zera a gravidade/velocidade original
+        Root.Velocity = Vector3.zero
+        
+        -- Move baseando-se para onde a câmera olha
+        if MoveDir.Magnitude > 0 then
+            -- Calcula a nova posição
+            local NewPos = Root.CFrame.Position + (CamCF.RightVector * (MoveDir.X * FlySpeed)) + (CamCF.LookVector * (MoveDir.Z * FlySpeed * -1))
+            -- Ajusta altura com Espaço/Control se quiser, ou só segue a câmera
+            -- Aqui vamos fazer seguir a direção que o player aperta (W vai pra onde a camera olha)
+            Root.CFrame = CFrame.new(NewPos, NewPos + CamCF.LookVector)
+        else
+            -- Mantém parado no ar
+            Root.Velocity = Vector3.zero
+        end
+    end
+
+    -- 2. NOCLIP (RenderStepped para garantir)
+    -- O Noclip principal fica melhor no loop "Stepped" (abaixo), 
+    -- mas aqui garantimos caso o jogo force a colisão.
+    if Noclip_Enabled and Char then
+        for _, part in pairs(Char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
             end
         end
     end
 
-    -- SMART FIRE
+    -- 3. JAIL
+    if F2_Mode and ZombieFolder then
+        for _, z in pairs(ZombieFolder:GetChildren()) do
+            local ZR = z:FindFirstChild("HumanoidRootPart") or z:FindFirstChild("Torso")
+            if ZR then
+                if (ZR.Position - JailPos).Magnitude > 2 then
+                    local Jitter = Vector3.new(math.random(-1,1)/2, 0, math.random(-1,1)/2)
+                    ZR.CFrame = CFrame.new(JailPos + Jitter)
+                    ZR.Velocity = Vector3.zero
+                end
+                ZR.Anchored = false
+            end
+        end
+    end
+
+    -- 4. SMART FIRE
     if F3_Mode and not IsHoldingFireGun() then
         local Target = nil
         if ZombieFolder then
             for _, z in pairs(ZombieFolder:GetChildren()) do
                 local H = z:FindFirstChild("Head")
-                local Hum = z:FindFirstChild("Humanoid")
-                if H and Hum and Hum.Health > 0 then Target = H; break end
+                local Humm = z:FindFirstChild("Humanoid")
+                if H and Humm and Humm.Health > 0 then Target = H; break end
             end
         end
         if Target then
@@ -237,7 +277,7 @@ local function LogicLoop()
         end
     end
 
-    -- HITBOX
+    -- 5. HITBOX
     if Hitbox_Enabled and ZombieFolder then
         for _, z in pairs(ZombieFolder:GetChildren()) do
             local h = z:FindFirstChild("Head")
@@ -248,7 +288,7 @@ local function LogicLoop()
         end
     end
 
-    -- COMBINE AMMO
+    -- 6. COMBINE AMMO
     if CombineAmmo_Enabled then
         local locs = {LocalPlayer.Backpack, LocalPlayer.Character}
         for _, loc in pairs(locs) do
@@ -270,9 +310,8 @@ local function LogicLoop()
         end
     end
 
-    -- AUTO SWITCH
+    -- 7. AUTO SWITCH
     if AutoSwitch_Enabled then
-        local Char = LocalPlayer.Character
         if Char then
             local Tool = Char:FindFirstChildOfClass("Tool")
             local Backpack = LocalPlayer:FindFirstChild("Backpack")
@@ -289,27 +328,32 @@ local function LogicLoop()
         end
     end
 
-    -- BRING (F1) - AJUSTADO PARA COSTAS
+    -- 8. BRING
     if Bring_Enabled and not F2_Mode and ZombieFolder then
         local LookVec = Camera.CFrame.LookVector
-        -- Posição na frente do player
         local TargetPos = Camera.CFrame.Position + (LookVec * BringDistance)
-        
         for _, z in pairs(ZombieFolder:GetChildren()) do
             local R = z:FindFirstChild("HumanoidRootPart")
             if R then
-                -- Define a posição para TargetPos
-                -- Define o LookAt para (TargetPos + LookVec), ou seja, olhando para a mesma direção que o player olha
-                -- Se o player olha pro Norte, o zumbi olha pro Norte. Logo, o zumbi dá as costas pro player.
                 R.CFrame = CFrame.new(TargetPos, TargetPos + LookVec)
-                R.Anchored = true
-                R.Velocity = Vector3.zero
+                R.Anchored = true; R.Velocity = Vector3.zero
             end
         end
     end
 
     CheckAndRemoveLava()
 end
+
+-- HOOK PARA NOCLIP FÍSICO (Stepped é melhor para física)
+table.insert(Connections, RunService.Stepped:Connect(function()
+    if Noclip_Enabled and LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end
+end))
 
 table.insert(Connections, RunService.RenderStepped:Connect(LogicLoop))
 
@@ -318,10 +362,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(LogicLoop))
 --------------------------------------------------------------------------------
 
 local function CreateUI()
-    for _, v in pairs(CoreGui:GetChildren()) do if v.Name == "ZombieV61" then v:Destroy() end end
+    for _, v in pairs(CoreGui:GetChildren()) do if v.Name == "ZombieV62" then v:Destroy() end end
     
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "ZombieV61"
+    ScreenGui.Name = "ZombieV62"
     ScreenGui.Parent = CoreGui
     
     local SoundClick = Instance.new("Sound", ScreenGui)
@@ -360,8 +404,8 @@ local function CreateUI()
 
     -- MAIN FRAME
     local MainFrame = Instance.new("Frame", ScreenGui)
-    MainFrame.Size = UDim2.new(0, 250, 0, 480) -- Mais alto para caber tudo
-    MainFrame.Position = UDim2.new(0.5, -125, 0.5, -240)
+    MainFrame.Size = UDim2.new(0, 250, 0, 550) -- Aumentado para caber Fly/Noclip
+    MainFrame.Position = UDim2.new(0.5, -125, 0.5, -275)
     MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
     local MC = Instance.new("UICorner", MainFrame); MC.CornerRadius = UDim.new(0, 10)
     local MS = Instance.new("UIStroke", MainFrame); MS.Color = Color3.fromRGB(50, 50, 60); MS.Thickness = 1
@@ -371,7 +415,7 @@ local function CreateUI()
     local Header = Instance.new("Frame", MainFrame)
     Header.Size = UDim2.new(1, 0, 0, 40); Header.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
     local HC = Instance.new("UICorner", Header); HC.CornerRadius = UDim.new(0, 10)
-    local HTilde = Instance.new("TextLabel", Header); HTilde.Text=" Torre dos Zumbis 🧟 V1"; HTilde.Size=UDim2.new(0.8,0,1,0); HTilde.BackgroundTransparency=1; HTilde.TextColor3=Color3.fromRGB(0,200,255); HTilde.Font=Enum.Font.GothamBold; HTilde.TextSize=16; HTilde.TextXAlignment=Enum.TextXAlignment.Left; HTilde.Position=UDim2.new(0.05,0,0,0)
+    local HTilde = Instance.new("TextLabel", Header); HTilde.Text=" ZOMBIE V62"; HTilde.Size=UDim2.new(0.8,0,1,0); HTilde.BackgroundTransparency=1; HTilde.TextColor3=Color3.fromRGB(0,200,255); HTilde.Font=Enum.Font.GothamBold; HTilde.TextSize=16; HTilde.TextXAlignment=Enum.TextXAlignment.Left; HTilde.Position=UDim2.new(0.05,0,0,0)
     local Mini = Instance.new("TextButton", Header); Mini.Text="-"; Mini.Size=UDim2.new(0,30,0,30); Mini.Position=UDim2.new(1,-35,0.5,-15); Mini.BackgroundColor3=Color3.fromRGB(40,40,45); Mini.TextColor3=Color3.new(1,1,1); local MiC=Instance.new("UICorner", Mini); MiC.CornerRadius=UDim.new(0,6)
 
     -- LISTA
@@ -401,15 +445,13 @@ local function CreateUI()
                 TweenService:Create(Ind, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(50,50,50)}):Play()
                 TweenService:Create(Lbl, TweenInfo.new(0.2), {TextColor3=Color3.fromRGB(200,200,200)}):Play()
             end
-            callback(Enabled, Lbl) -- Passa Label para edição se precisar
+            callback(Enabled, Lbl) 
         end
         
         Btn.MouseButton1Click:Connect(function() SoundClick:Play(); Enabled = not Enabled; Update() end)
         if keyCode then
             ButtonToggles[keyCode] = function() SoundClick:Play(); Enabled = not Enabled; Update() end
         end
-        
-        return Btn, Lbl
     end
 
     -- BOTÕES
@@ -417,13 +459,16 @@ local function CreateUI()
     AddToggle("F3: Smart Fire", false, Enum.KeyCode.F3, function(s) F3_Mode = s end)
     AddToggle("F1: Bring (Costas)", false, Enum.KeyCode.F1, function(s) Bring_Enabled = s; if not s then UnfreezeZombies() end end)
     
+    AddToggle("Fly (Voar)", false, nil, function(s) Fly_Enabled = s end)
+    AddToggle("Noclip (Atravessar)", false, nil, function(s) Noclip_Enabled = s end)
+    
     AddToggle("Auto Remove Lava", false, nil, function(s) RemoveLava_Enabled = s; if s then CheckAndRemoveLava() end end)
     AddToggle("Hitbox Gigante (30)", false, nil, function(s) Hitbox_Enabled = s end)
     AddToggle("Auto Switch (No Ammo)", false, nil, function(s) AutoSwitch_Enabled = s end)
     AddToggle("Combine Ammo", false, nil, function(s) CombineAmmo_Enabled = s end)
     AddToggle("Auto Loot (Killzone)", false, nil, function(s) AutoLoot_Enabled = s; if s then PerformLootRun() end end)
 
-    -- BOTÃO DE TEMPO (EXTRA)
+    -- BOTÃO DE TEMPO
     local TimeBtn = Instance.new("TextButton", Container)
     TimeBtn.Size = UDim2.new(1, 0, 0, 35); TimeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70); TimeBtn.Text = "Tempo Loot: 60s"; TimeBtn.TextColor3 = Color3.new(1,1,1); TimeBtn.Font = Enum.Font.GothamBold; local TC = Instance.new("UICorner", TimeBtn); TC.CornerRadius = UDim.new(0,6)
     
@@ -436,7 +481,6 @@ local function CreateUI()
         TimeBtn.Text = "Tempo Loot: " .. LootInterval .. "s"
     end)
     
-    -- ESPAÇO
     local Space = Instance.new("Frame", Container); Space.Size=UDim2.new(1,0,0,10); Space.BackgroundTransparency=1
 
     -- BOTÃO FECHAR
@@ -447,14 +491,13 @@ local function CreateUI()
         ScreenGui:Destroy()
         for _,c in pairs(Connections) do c:Disconnect() end
         Connections = nil
+        ButtonToggles = nil
     end)
 
-    -- MINIMIZE LOGIC
     local function ToggleMini() SoundClick:Play(); MainFrame.Visible = not MainFrame.Visible; FloatBtn.Visible = not MainFrame.Visible end
     Mini.MouseButton1Click:Connect(ToggleMini); FloatBtn.MouseButton1Click:Connect(ToggleMini)
 end
 
--- KEY LISTENER
 if Connections then
     table.insert(Connections, UserInputService.InputBegan:Connect(function(i,p)
         if not p and ButtonToggles[i.KeyCode] then ButtonToggles[i.KeyCode]() end
@@ -462,3 +505,4 @@ if Connections then
 end
 
 CreateUI()
+Notify("ZOMBIE V62", "Fly e Noclip Adicionados!")
